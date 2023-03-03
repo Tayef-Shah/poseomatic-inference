@@ -1,6 +1,3 @@
-import tensorflow as tf
-import tensorflow_hub as hub
-from tensorflow_docs.vis import embed
 import numpy as np
 import cv2
 
@@ -194,9 +191,3 @@ def draw_prediction_on_image(
             interpolation=cv2.INTER_CUBIC,
         )
     return image_from_plot
-
-
-def to_gif(images, fps):
-    """Converts image sequence (4D numpy array) to gif."""
-    imageio.mimsave("./animation.gif", images, fps=fps)
-    return embed.embed_file("./animation.gif")

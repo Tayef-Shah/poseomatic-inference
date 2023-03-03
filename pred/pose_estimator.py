@@ -13,11 +13,7 @@ def load_image(image_url):
         print("image could not be opened")
 
 
-def preprocess_img(image_url):
-    image = load_image(image_url)
-    if image is None:
-        return image
-
+def preprocess_img(image):
     image = tf.keras.utils.img_to_array(image)
     image = tf.convert_to_tensor(image)
 
