@@ -3,7 +3,12 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from PIL import Image
-from pred.pose_estimator import preprocess_img, estimate_pose
+from pred.pose_estimator import (
+    preprocess_img,
+    init_crop_region,
+    determine_crop_region,
+    run_inference,
+)
 from utils.pose_vis import draw_prediction_on_image
 from utils.s3client import S3Client
 
@@ -23,7 +28,15 @@ async def estimate(request: Img):
     if request_image is None:
         raise HTTPException(status_code=404, detail="Image could not be downloaded")
     img_tensor = preprocess_img(request_image)
-    estimation = estimate_pose(img_tensor)
+
+    num_frames, image_height, image_width, _ = img_tensor.shape
+    crop_region = init_crop_region(image_height, image_width)
+    crop_size = [192, 192]
+
+    frame_idx = 0
+
+    estimation = run_inference(img_tensor[frame_idx, :, :, :], crop_region, crop_size)
+    crop_region = determine_crop_region(estimation, image_height, image_width)
 
     # draw estimation over image
     display_image = tf.expand_dims(request_image, axis=0)
