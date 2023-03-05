@@ -50,4 +50,4 @@ async def estimate(request: Img):
     img = Image.fromarray(output_overlay)
     s3_client.upload_image(img, request.img_url)
 
-    return {"keypoints": estimation.tolist(), "status_code": 200}
+    return {"file_name": "estimation_" + request.img_url, "status_code": 200}
