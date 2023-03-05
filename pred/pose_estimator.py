@@ -22,7 +22,7 @@ def preprocess_img(image):
     image = tf.convert_to_tensor(image)
 
     # Resize and pad the image to keep the aspect ratio and fit the expected size.
-    input_size = 192
+    input_size = 256
     input_image = tf.expand_dims(image, axis=0)
     input_image = tf.image.resize_with_pad(input_image, input_size, input_size)
     return input_image
@@ -189,7 +189,7 @@ def crop_and_resize(image, crop_region, crop_size):
     return output_image
 
 
-def run_inference(image, crop_region, crop_size):
+def run_inference(module, image, crop_region, crop_size):
     """Runs model inferece on the cropped region.
 
     The function runs the model inference on the cropped region and updates the
@@ -200,7 +200,7 @@ def run_inference(image, crop_region, crop_size):
         tf.expand_dims(image, axis=0), crop_region, crop_size=crop_size
     )
     # Run model inference.
-    keypoints_with_scores = movenet(input_image)
+    keypoints_with_scores = movenet(module, input_image)
     # Update the coordinates.
     for idx in range(17):
         keypoints_with_scores[0, 0, idx, 0] = (

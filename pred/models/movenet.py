@@ -1,8 +1,7 @@
 import tensorflow as tf
-import tensorflow_hub as hub
 
 
-def movenet(input_image):
+def movenet(module, input_image):
     """Runs detection on an input image.
 
     Args:
@@ -15,7 +14,7 @@ def movenet(input_image):
       coordinates and scores.
     """
     # maybe make model a param?
-    module = hub.load("https://tfhub.dev/google/movenet/singlepose/lightning/4")
+    # module = hub.load("https://tfhub.dev/google/movenet/singlepose/lightning/4")
     model = module.signatures["serving_default"]
 
     # SavedModel format expects tensor type of int32.
