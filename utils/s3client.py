@@ -1,3 +1,4 @@
+import logging
 import boto3
 from io import BytesIO
 from PIL import Image
@@ -8,9 +9,13 @@ class S3Client:
         self.region_name = region_name
         self.bucket = bucket_name
         self.s3 = boto3.client("s3", region_name=self.region_name)
+        self.logger = logging.getLogger(name=__name__)
+        self.logger.setLevel(logging.INFO)
 
     def load_image(self, file_key):
         response = self.s3.get_object(Bucket=self.bucket, Key=file_key)
+        http_status = response["ResponseMetadata"]["HTTPStatusCode"]
+        self.logger.info(f"S3 fetch response: {http_status}")
         image = Image.open(BytesIO(response["Body"].read()))
         return image
 

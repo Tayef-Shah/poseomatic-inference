@@ -1,3 +1,4 @@
+import logging
 import tensorflow as tf
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -14,6 +15,7 @@ from utils.s3client import S3Client
 import tensorflow_hub as hub
 
 app = FastAPI(title="Inference API")
+logging.basicConfig(format="%(levelname)s:     %(message)s", level=logging.INFO)
 
 
 class Img(BaseModel):
@@ -21,11 +23,15 @@ class Img(BaseModel):
 
 
 s3_client = S3Client(region_name="ca-central-1", bucket_name="poseomatic")
+logging.info("Started S3 client")
+logging.info("Begining model download...")
 module = hub.load("https://tfhub.dev/google/movenet/singlepose/thunder/4")
+logging.info("Model download complete")
 
 
 @app.post("/estimate", status_code=200)
 async def estimate(request: Img):
+    logging.info("Loading image from S3...")
     request_image = s3_client.load_image(request.img_url)
     if request_image is None:
         raise HTTPException(status_code=404, detail="Image could not be downloaded")
@@ -37,12 +43,14 @@ async def estimate(request: Img):
 
     frame_idx = 0
 
+    logging.info("Running pose estimation...")
     estimation = run_inference(
         module, img_tensor[frame_idx, :, :, :], crop_region, crop_size
     )
+    logging.info("Estimation complete")
     crop_region = determine_crop_region(estimation, image_height, image_width)
 
-    # draw estimation over image
+    logging.info("Drawing estimation landmarks onto image...")
     display_image = tf.expand_dims(request_image, axis=0)
     display_image = tf.cast(
         tf.image.resize_with_pad(display_image, 1280, 1280), dtype=tf.int32
@@ -52,6 +60,7 @@ async def estimate(request: Img):
     )
 
     img = Image.fromarray(output_overlay)
+    logging.info("Uploading image to S3...")
     s3_client.upload_image(img, request.img_url)
 
     return {"file_name": "estimation_" + request.img_url, "status_code": 200}
