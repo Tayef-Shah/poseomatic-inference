@@ -1,4 +1,5 @@
 import logging
+import cv2
 import tensorflow as tf
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -6,6 +7,7 @@ from pydantic import BaseModel
 from PIL import Image
 from pred.pose_estimator import (
     preprocess_img,
+    preprocess_video,
     init_crop_region,
     determine_crop_region,
     run_inference,
@@ -13,6 +15,9 @@ from pred.pose_estimator import (
 from utils.pose_vis import draw_prediction_on_image
 from utils.s3client import S3Client
 import tensorflow_hub as hub
+import skvideo.io
+from moviepy.editor import ImageSequenceClip
+from pred.models.movenet import movenet
 
 app = FastAPI(title="Inference API")
 logging.basicConfig(format="%(levelname)s:     %(message)s", level=logging.INFO)
@@ -20,6 +25,10 @@ logging.basicConfig(format="%(levelname)s:     %(message)s", level=logging.INFO)
 
 class Img(BaseModel):
     img_url: str
+
+
+class Video(BaseModel):
+    video_url: str
 
 
 s3_client = S3Client(region_name="ca-central-1", bucket_name="poseomatic")
@@ -64,3 +73,115 @@ async def estimate(request: Img):
     s3_client.upload_image(img, request.img_url)
 
     return {"file_name": "estimation_" + request.img_url, "status_code": 200}
+
+
+@app.post("/v1/estimate-video", status_code=200)
+async def estimate_video(request: Video):
+    logging.info("Loading video from S3...")
+    src_video = s3_client.load_video(request.video_url)
+    if src_video is None:
+        raise HTTPException(status_code=404, detail="Video could not be downloaded")
+
+    original_frames, video_tensor = preprocess_video(src_video)
+    display_frames = []
+    for frame in original_frames:
+        display_image = tf.expand_dims(frame, axis=0)
+        display_image = tf.cast(
+            tf.image.resize_with_pad(display_image, 1280, 1280), dtype=tf.int32
+        )
+        display_frames.append(display_image)
+
+    num_frames, frame_height, frame_width, _ = video_tensor.shape
+    logging.info(f"Processed video with shape {video_tensor.shape}")
+
+    crop_region = init_crop_region(frame_height, frame_width)
+    crop_size = [256, 256]
+
+    output_frames = []
+    for frame_idx in range(num_frames):
+        logging.info(f"Frame {frame_idx} : Running pose estimation...")
+        estimation = run_inference(
+            module, video_tensor[frame_idx, :, :, :], crop_region, crop_size
+        )
+        logging.info(f"Frame {frame_idx} : Estimation complete")
+        logging.info(f"Frame {frame_idx} : Drawing estimation landmarks onto image...")
+        output_overlay = draw_prediction_on_image(
+            np.squeeze(display_frames[frame_idx].numpy(), axis=0), estimation
+        )
+        output_frames.append(output_overlay)
+        crop_region = determine_crop_region(estimation, frame_height, frame_width)
+
+    output_video = np.stack(output_frames, axis=0)
+
+    # set up the video encoding parameters
+    outputfile = "estimation_" + request.video_url
+    videocodec = "libx264"
+    fps = 30.0
+
+    # encode the video using scikit-video
+    skvideo.io.vwrite(
+        outputfile,
+        output_video,
+        inputdict={"-r": str(fps)},
+        outputdict={"-vcodec": videocodec},
+    )
+
+    s3_client.upload_video(outputfile)
+
+    return {"file_name": "estimation_" + request.video_url}
+
+
+@app.post("/v2/estimate-video", status_code=200)
+async def estimate_video(request: Video):
+    url = s3_client.s3.generate_presigned_url(
+        ClientMethod="get_object",
+        Params={"Bucket": s3_client.bucket, "Key": request.video_url},
+    )
+
+    cap = cv2.VideoCapture(url)
+    logging.info("Downloaded S3 video")
+    frames = []
+    success, frame_image = cap.read()
+    count = 0
+    while success:
+        frame_image = cv2.cvtColor(frame_image, cv2.COLOR_BGR2RGB)
+        frames.append(frame_image)
+        success, frame_image = cap.read()
+        count += 1
+
+    logging.info(f"Total frames: {count}")
+    video = np.stack(frames, axis=0)
+    logging.info(f"Video shape: {video.shape}")
+    cap.release()
+
+    output_frames = []
+    frame_idx = 0
+    for f in frames:
+        input_size = 256
+        input_image = tf.expand_dims(f, axis=0)
+        input_image = tf.image.resize_with_pad(input_image, input_size, input_size)
+
+        # Run model inference.
+        keypoints_with_scores = movenet(module, input_image)
+
+        # Visualize the predictions with image.
+        logging.info(f"Frame {frame_idx} : Drawing estimation landmarks onto image...")
+        display_image = tf.expand_dims(f, axis=0)
+        display_image = tf.cast(
+            tf.image.resize_with_pad(display_image, 1280, 1280), dtype=tf.int32
+        )
+        output_overlay = draw_prediction_on_image(
+            np.squeeze(display_image.numpy(), axis=0), keypoints_with_scores
+        )
+        output_frames.append(output_overlay)
+        frame_idx += 1
+
+    logging.info("Writing video file...")
+    file_key = "estimation_" + request.video_url
+    clip = ImageSequenceClip(output_frames, fps=30)
+    clip.write_videofile(file_key, audio=False)
+
+    logging.info("Uploading to S3...")
+    s3_client.upload_video(file_key)
+
+    return {"file_name": file_key}

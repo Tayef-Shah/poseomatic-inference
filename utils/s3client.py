@@ -1,3 +1,4 @@
+import av
 import logging
 import boto3
 from io import BytesIO
@@ -27,3 +28,14 @@ class S3Client:
             output.seek(0)
             # might want to catch response code
             self.s3.upload_fileobj(output, self.bucket, file_path)
+
+    def load_video(self, file_key):
+        response = self.s3.get_object(Bucket=self.bucket, Key=file_key)
+        http_status = response["ResponseMetadata"]["HTTPStatusCode"]
+        self.logger.info(f"S3 fetch response: {http_status}")
+        # Read the video content and create an AV container
+        container = av.open(BytesIO(response["Body"].read()))
+        return container
+
+    def upload_video(self, video_path):
+        self.s3.upload_file(video_path, self.bucket, video_path)

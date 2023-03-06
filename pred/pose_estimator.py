@@ -28,6 +28,17 @@ def preprocess_img(image):
     return input_image
 
 
+def preprocess_video(video_container):
+    og_frames = []
+    video_frames = []
+    for frame in video_container.decode(video=0):
+        img = frame.to_image()  # PIL Image
+        og_frames.append(img)
+        new_frame = preprocess_img(img)
+        video_frames.append(new_frame)
+    return og_frames, tf.concat(video_frames, axis=0)
+
+
 def init_crop_region(image_height, image_width):
     """Defines the default crop region.
 
