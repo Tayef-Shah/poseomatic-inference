@@ -1,3 +1,4 @@
+import os
 import logging
 import cv2
 import tensorflow as tf
@@ -233,11 +234,24 @@ async def compare_videos(request: CmpRequest):
     # 3. Pose Comparision
 
     comp_frames = []
+    scores = []
+    mean_score = 0
 
     # 4. Write Output and Upload
 
     video_processor.write_frames_to_file(result_file_name, comp_frames)
+
     logging.info("Uploading to S3...")
     s3_client.upload_video(result_file_name)
 
-    return {"file_name": result_file_name}
+    # Delete file after upload to S3
+    if os.path.exists(result_file_name):
+        os.remove(result_file_name)
+    else:
+        logging.warning("The output file does not exist")
+
+    return {
+        "file_name": result_file_name,
+        "all_scores": scores,
+        "mean_score": mean_score,
+    }
