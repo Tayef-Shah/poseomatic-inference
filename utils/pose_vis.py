@@ -179,9 +179,14 @@ def draw_prediction_on_image(
 
     fig.canvas.draw()
     image_from_plot = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    image_from_plot = image_from_plot.reshape(
-        tuple([x * 2 for x in fig.canvas.get_width_height()[::-1]]) + (3,)
-    )
+    try:
+        image_from_plot = image_from_plot.reshape(
+            fig.canvas.get_width_height()[::-1] + (3,)
+        )
+    except:
+        image_from_plot = image_from_plot.reshape(
+            tuple([x * 2 for x in fig.canvas.get_width_height()[::-1]]) + (3,)
+        )
     plt.close(fig)
     if output_image_height is not None:
         output_image_width = int(output_image_height / height * width)
