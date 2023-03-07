@@ -11,6 +11,7 @@ from pred.pose_estimator import (
     init_crop_region,
     determine_crop_region,
     run_inference,
+    run_inference_no_crop,
 )
 from utils.pose_vis import draw_prediction_on_image
 from utils.s3client import S3Client
@@ -18,9 +19,15 @@ import tensorflow_hub as hub
 import skvideo.io
 from moviepy.editor import ImageSequenceClip
 from pred.models.movenet import movenet
+from utils.videoio import VideoIO
 
 app = FastAPI(title="Inference API")
 logging.basicConfig(format="%(levelname)s:     %(message)s", level=logging.INFO)
+s3_client = S3Client(region_name="ca-central-1", bucket_name="poseomatic")
+logging.info("Started S3 client")
+logging.info("Begining model download...")
+module = hub.load("https://tfhub.dev/google/movenet/singlepose/thunder/4")
+logging.info("Model download complete")
 
 
 class Img(BaseModel):
@@ -31,11 +38,11 @@ class Video(BaseModel):
     video_url: str
 
 
-s3_client = S3Client(region_name="ca-central-1", bucket_name="poseomatic")
-logging.info("Started S3 client")
-logging.info("Begining model download...")
-module = hub.load("https://tfhub.dev/google/movenet/singlepose/thunder/4")
-logging.info("Model download complete")
+class CmpRequest(BaseModel):
+    reference_video: str
+    reference_video_url: str
+    user_video: str
+    user_video_url: str
 
 
 @app.post("/estimate", status_code=200)
@@ -185,3 +192,52 @@ async def estimate_video(request: Video):
     s3_client.upload_video(file_key)
 
     return {"file_name": file_key}
+
+
+@app.post("/compare", status_code=200)
+async def compare_videos(request: CmpRequest):
+    video_processor = VideoIO()
+    result_file_name = ""
+    ref_video_name = request.reference_video
+    usr_video_name = request.user_video_url
+
+    # 1. Video Processing
+
+    logging.info(f"Processing video: {ref_video_name}")
+    reference_frames = video_processor.split_into_frames(request.reference_video_url)
+    logging.info(f"Proccessing video: {usr_video_name}")
+    user_frames = video_processor.split_into_frames(request.user_video_url)
+
+    # 2. Pose Estimation
+
+    output_frames_reference = []
+    frame_idx = 0
+    for frame in reference_frames:
+        logging.info(
+            f"Frame {frame_idx} : Drawing estimation landmarks onto image {ref_video_name} ..."
+        )
+        estimation = run_inference_no_crop(module, input_size=256, image=frame)
+        output_frames_reference.append(estimation)
+        frame_idx += 1
+
+    output_frames_user = []
+    frame_idx = 0
+    for frame in user_frames:
+        logging.info(
+            f"Frame {frame_idx} : Drawing estimation landmarks onto image {usr_video_name} ..."
+        )
+        estimation = run_inference_no_crop(module, input_size=256, image=frame)
+        output_frames_user.append(estimation)
+        frame_idx += 1
+
+    # 3. Pose Comparision
+
+    comp_frames = []
+
+    # 4. Write Output and Upload
+
+    video_processor.write_frames_to_file(result_file_name, comp_frames)
+    logging.info("Uploading to S3...")
+    s3_client.upload_video(result_file_name)
+
+    return {"file_name": result_file_name}

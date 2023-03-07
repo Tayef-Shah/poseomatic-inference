@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 from PIL import Image
 from pred.models.movenet import movenet
-from utils.pose_vis import KEYPOINT_DICT
+from utils.pose_vis import KEYPOINT_DICT, draw_prediction_on_image
 
 MIN_CROP_KEYPOINT_SCORE = 0.2
 
@@ -223,3 +223,21 @@ def run_inference(module, image, crop_region, crop_size):
             + crop_region["width"] * image_width * keypoints_with_scores[0, 0, idx, 1]
         ) / image_width
     return keypoints_with_scores
+
+
+def run_inference_no_crop(module, input_size, image) -> np.ndarray:
+    input_image = tf.expand_dims(image, axis=0)
+    input_image = tf.image.resize_with_pad(input_image, input_size, input_size)
+
+    # Run model inference.
+    keypoints_with_scores = movenet(module, input_image)
+
+    # Visualize the predictions with image.
+    display_image = tf.expand_dims(image, axis=0)
+    display_image = tf.cast(
+        tf.image.resize_with_pad(display_image, 1280, 1280), dtype=tf.int32
+    )
+    output_overlay = draw_prediction_on_image(
+        np.squeeze(display_image.numpy(), axis=0), keypoints_with_scores
+    )
+    return output_overlay
