@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from PIL import Image
 from pred.pose_estimator import (
     preprocess_img,
-    preprocess_video, 
+    preprocess_video,
     init_crop_region,
     determine_crop_region,
     run_inference,
@@ -35,6 +35,7 @@ logging.info("Started S3 client")
 logging.info("Begining model download...")
 module = hub.load("https://tfhub.dev/google/movenet/singlepose/thunder/4")
 logging.info("Model download complete")
+os.mkdir("lookup")
 
 
 class Img(BaseModel):
@@ -207,7 +208,7 @@ async def compare_videos(request: CmpRequest):
     result_file_name = ""
     ref_video_name = request.reference_video
     usr_video_name = request.user_video
-# eh do sth here idk
+    # eh do sth here idk
     ref_url = s3_client.s3.generate_presigned_url(
         ClientMethod="get_object",
         Params={"Bucket": s3_client.bucket, "Key": request.reference_video},
@@ -229,10 +230,10 @@ async def compare_videos(request: CmpRequest):
     if not os.path.exists(lookup):
         make_lookup(video=ref_url, activity=ref_video_name, lookup=lookup)
     g = get_Score(lookup)
-    final_score,score_list = g.calculate_Score(usr_url, ref_video_name)
-    print("Total Score : ",final_score)
-    print("Score List : ",score_list)
-    
+    final_score, score_list = g.calculate_Score(usr_url, ref_video_name)
+    print("Total Score : ", final_score)
+    print("Score List : ", score_list)
+
     # 2. Pose Estimation
 
     output_frames_reference = []
@@ -255,8 +256,7 @@ async def compare_videos(request: CmpRequest):
         output_frames_user.append(estimation)
         frame_idx += 1
 
-
-    comp_frames = [] 
+    comp_frames = []
 
     # 4. Write Output and Upload
 
@@ -266,7 +266,7 @@ async def compare_videos(request: CmpRequest):
 
     logging.info("Uploading to S3...")
     # s3_client.upload_video(result_file_name)
-    ref_video_name = "estimation_"+ ref_video_name
+    ref_video_name = "estimation_" + ref_video_name
     usr_video_name = "estimation_" + usr_video_name
     s3_client.upload_video(ref_video_name)
     s3_client.upload_video(usr_video_name)
@@ -277,11 +277,19 @@ async def compare_videos(request: CmpRequest):
     else:
         logging.warning("The output file does not exist")
 
+    if os.path.exists(ref_video_name):
+        os.remove(ref_video_name)
+    if os.path.exists(usr_video_name):
+        os.remove(usr_video_name)
+
+    else:
+        logging.warning("The output file does not exist")
+
     return {
         "file_names": {
             "reference": ref_video_name,
             "user": usr_video_name,
-            "comparison": result_file_name
+            "comparison": result_file_name,
         },
         "all_scores": score_list,
         "mean_score": final_score,
