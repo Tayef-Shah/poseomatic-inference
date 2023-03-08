@@ -289,7 +289,7 @@ async def compare_videos(request: CmpRequest):
         "file_names": {
             "reference": ref_video_name,
             "user": usr_video_name,
-            "comparison": result_file_name,
+            "comparison": usr_video_name,
         },
         "all_scores": score_list,
         "mean_score": final_score,
