@@ -209,14 +209,8 @@ async def compare_videos(request: CmpRequest):
     ref_video_name = request.reference_video
     usr_video_name = request.user_video
     # eh do sth here idk
-    ref_url = s3_client.s3.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={"Bucket": s3_client.bucket, "Key": request.reference_video},
-    )
-    usr_url = s3_client.s3.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={"Bucket": s3_client.bucket, "Key": request.user_video},
-    )
+    ref_url = request.reference_video_url
+    usr_url = request.user_video_url
 
     # 1. Video Processing
 
