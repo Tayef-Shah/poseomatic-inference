@@ -21,6 +21,12 @@ import skvideo.io
 from moviepy.editor import ImageSequenceClip
 from pred.models.movenet import movenet
 from utils.videoio import VideoIO
+from keypoints_from_video import main as make_lookup
+from calculations import get_Score
+
+
+# eh do sth here idk
+
 
 app = FastAPI(title="Inference API")
 logging.basicConfig(format="%(levelname)s:     %(message)s", level=logging.INFO)
@@ -29,6 +35,7 @@ logging.info("Started S3 client")
 logging.info("Begining model download...")
 module = hub.load("https://tfhub.dev/google/movenet/singlepose/thunder/4")
 logging.info("Model download complete")
+os.mkdir("lookup")
 
 
 class Img(BaseModel):
@@ -200,14 +207,26 @@ async def compare_videos(request: CmpRequest):
     video_processor = VideoIO()
     result_file_name = ""
     ref_video_name = request.reference_video
-    usr_video_name = request.user_video_url
+    usr_video_name = request.user_video
+    # eh do sth here idk
+    ref_url = request.reference_video_url
+    usr_url = request.user_video_url
 
     # 1. Video Processing
 
     logging.info(f"Processing video: {ref_video_name}")
-    reference_frames = video_processor.split_into_frames(request.reference_video_url)
+    reference_frames = video_processor.split_into_frames(ref_url)
     logging.info(f"Proccessing video: {usr_video_name}")
-    user_frames = video_processor.split_into_frames(request.user_video_url)
+    user_frames = video_processor.split_into_frames(usr_url)
+
+    # 3. Pose Comparision
+    lookup = os.path.join("lookup/", f"{ref_video_name}.pickle")
+    if not os.path.exists(lookup):
+        make_lookup(video=ref_url, activity=ref_video_name, lookup=lookup)
+    g = get_Score(lookup)
+    final_score, score_list = g.calculate_Score(usr_url, ref_video_name)
+    print("Total Score : ", final_score)
+    print("Score List : ", score_list)
 
     # 2. Pose Estimation
 
@@ -231,18 +250,20 @@ async def compare_videos(request: CmpRequest):
         output_frames_user.append(estimation)
         frame_idx += 1
 
-    # 3. Pose Comparision
-
     comp_frames = []
-    scores = []
-    mean_score = 0
 
     # 4. Write Output and Upload
 
-    video_processor.write_frames_to_file(result_file_name, comp_frames)
+    # video_processor.write_frames_to_file(result_file_name, comp_frames)
+    video_processor.write_frames_to_file(ref_video_name, output_frames_reference)
+    video_processor.write_frames_to_file(usr_video_name, output_frames_user)
 
     logging.info("Uploading to S3...")
-    s3_client.upload_video(result_file_name)
+    # s3_client.upload_video(result_file_name)
+    ref_video_name = "estimation_" + ref_video_name
+    usr_video_name = "estimation_" + usr_video_name
+    s3_client.upload_video(ref_video_name)
+    s3_client.upload_video(usr_video_name)
 
     # Delete file after upload to S3
     if os.path.exists(result_file_name):
@@ -250,8 +271,20 @@ async def compare_videos(request: CmpRequest):
     else:
         logging.warning("The output file does not exist")
 
+    if os.path.exists(ref_video_name):
+        os.remove(ref_video_name)
+    if os.path.exists(usr_video_name):
+        os.remove(usr_video_name)
+
+    else:
+        logging.warning("The output file does not exist")
+
     return {
-        "file_name": result_file_name,
-        "all_scores": scores,
-        "mean_score": mean_score,
+        "file_names": {
+            "reference": ref_video_name,
+            "user": usr_video_name,
+            "comparison": usr_video_name,
+        },
+        "all_scores": score_list,
+        "mean_score": final_score,
     }
